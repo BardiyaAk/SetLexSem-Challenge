@@ -1,9 +1,10 @@
 import argparse
+import ast
 import itertools
 import logging
 import random
 from itertools import product
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 
@@ -44,6 +45,30 @@ def get_parser():
     return parser
 
 
+def parse_set_pair(raw_set_a: str, raw_set_b: str) -> Tuple[set, set]:
+    """Parse string representations of sets into Python sets"""
+    try:
+        set_a = ast.literal_eval(raw_set_a)
+        set_b = ast.literal_eval(raw_set_b)
+        return set_a, set_b
+    except (ValueError, SyntaxError) as e:
+        logger.error(f"Failed to parse sets: {e}")
+        raise
+
+
+def generate_set_pair(sampler: Union[Iterable, callable]) -> Tuple[set, set]:
+    """Generate a pair of sets from either an iterable or callable sampler"""
+    try:
+        if isinstance(sampler, Iterable):
+            raw_a, raw_b = next(sampler)
+            return parse_set_pair(raw_a, raw_b)
+        else:
+            return sampler()
+    except Exception as e:
+        logger.warning(f"Failed to generate set pair from sampler: {e}")
+        raise
+
+
 def make_sets_from_sampler(
     sample_set: Sampler,
     num_runs: int,
@@ -53,19 +78,17 @@ def make_sets_from_sampler(
     # initlize the dataset
     set_list = []
     for i in range(num_runs):
-        try:
-            # create two sets from the sampler
-            A, B = sample_set()
-            # loop through operations (on the same random sets)
-            set_list.append(
-                {
-                    "experiment_run": i,
-                    "A": A,
-                    "B": B,
-                }
-            )
-        except:
-            continue
+        # create two sets from the sampler
+        A, B = generate_set_pair(sample_set)
+
+        # loop through operations (on the same random sets)
+        set_list.append(
+            {
+                "experiment_run": i,
+                "A": A,
+                "B": B,
+            }
+        )
 
     return set_list
 

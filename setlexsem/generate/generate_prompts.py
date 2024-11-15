@@ -8,13 +8,17 @@ import os
 import random
 from collections.abc import Iterable
 from itertools import product
-from typing import Dict, List, Union
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import pandas as pd
 from tqdm import tqdm
 
 from setlexsem.constants import PATH_PROMPTS_ROOT
-from setlexsem.generate.generate_sets import get_sampler, make_hps_set
+from setlexsem.generate.generate_sets import (
+    generate_set_pair,
+    get_sampler,
+    make_hps_set,
+)
 from setlexsem.generate.prompt import (
     PromptConfig,
     get_ground_truth,
@@ -26,10 +30,6 @@ from setlexsem.utils import get_prompt_file_path, read_config
 
 logger = logging.getLogger(__name__)
 logger.setLevel(level=logging.INFO)
-
-
-def replace_none(list_in):
-    return [None if x == "None" else x for x in list_in]
 
 
 # define argparser
@@ -55,6 +55,10 @@ def get_parser():
     return parser
 
 
+def replace_none(list_in):
+    return [None if x == "None" else x for x in list_in]
+
+
 def make_hps_prompt(
     op_list=None,
     k_shot=None,
@@ -71,7 +75,7 @@ def make_hps_prompt(
         prompt_approach = config.get("prompt_approach")
         is_fix_shot = config.get("is_fix_shot")
 
-    # Wrap each parameter in a list if it isn’t already, to enable Cartesian product
+    # Wrap each parameter in a list if it isn't already, to enable Cartesian product
     param_grid = {
         "op_list": op_list if isinstance(op_list, list) else [op_list],
         "k_shot": k_shot if isinstance(k_shot, list) else [k_shot],
@@ -108,6 +112,32 @@ def get_prompt_config(
     return prompt_config_ready
 
 
+def create_single_prompt(
+    set_a: set, set_b: set, config: PromptConfig, add_roles: bool = False
+) -> Tuple[str, str]:
+    """Create a single prompt and its ground truth"""
+    try:
+        prompt = get_prompt(set_a, set_b, config, add_roles=add_roles)
+        ground_truth = get_ground_truth(config.operation, set_a, set_b)
+        return prompt, ground_truth
+    except Exception as e:
+        logger.warning(f"Failed to create prompt: {e}")
+        raise
+
+
+def create_single_prompt(
+    set_a: set, set_b: set, config: PromptConfig, add_roles: bool = False
+) -> Tuple[str, str]:
+    """Create a single prompt and its ground truth"""
+    try:
+        prompt = get_prompt(set_a, set_b, config, add_roles=add_roles)
+        ground_truth = get_ground_truth(config.operation, set_a, set_b)
+        return prompt, ground_truth
+    except Exception as e:
+        logger.warning(f"Failed to create prompt: {e}")
+        raise
+
+
 def create_prompts_from_sampler(
     sampler: Sampler,
     prompt_config: Dict[str, List[Union[str, int]]],
@@ -119,37 +149,20 @@ def create_prompts_from_sampler(
     # get prompt config
     prompt_config_ready = get_prompt_config(prompt_config, k_shot_sampler)
 
-    results = 0
     prompt_and_ground_truth = []
-    for i in tqdm(range(num_runs)):
-        try:
-            # create two sets from the sampler
-            if isinstance(sampler, Iterable):
-                # get next set from generator
-                A, B = next(sampler)
-                A = ast.literal_eval(A)
-                B = ast.literal_eval(B)
-            else:
-                # generate next set
-                A, B = sampler()
-        except:
-            logger.warning(f"No set: {sampler}")
-            continue
+    for _ in tqdm(range(num_runs)):
+        # Generate set pair
+        A, B = generate_set_pair(sampler)
 
-        try:
-            # Assign operation to the prompt_config
-            prompt = get_prompt(
-                A,
-                B,
-                prompt_config_ready,
-                add_roles=add_roles,
-            )
-        except:
-            logger.warning(f"No prompt: {prompt_config}")
-            continue
+        # Create prompt and ground truth
+        prompt, ground_truth = create_single_prompt(
+            A,
+            B,
+            prompt_config_ready,
+            add_roles=add_roles,
+        )
 
-        ground_truth = get_ground_truth(prompt_config_ready.operation, A, B)
-
+        # Store results
         prompt_and_ground_truth.append(
             {
                 "prompt": prompt,
